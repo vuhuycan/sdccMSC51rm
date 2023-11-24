@@ -1,0 +1,1 @@
+-Wl,-Map=.build/libra_mini_test_default.map,--cref   -lm 
