@@ -8,6 +8,15 @@ import itertools
 match_jump = re.compile(r'^\s+(acall|lcall|ljmp|ajmp|sjmp)\s+_(\w+)$')
 match_ptr  = re.compile(r'^\s+mov\s+\w+,#_(\w+)$')
 
+arX = [ '\t ar7 = 0x07\n',
+        '\t ar6 = 0x06\n',
+        '\t ar5 = 0x05\n',
+        '\t ar4 = 0x04\n',
+        '\t ar3 = 0x03\n',
+        '\t ar2 = 0x02\n',
+        '\t ar1 = 0x01\n',
+        '\t ar0 = 0x00\n']
+
 def process_path(path, func, recursive=False):
     if os.path.isfile(path):
         # Process individual file
@@ -79,11 +88,12 @@ class TreeNode:
             mod.print_globl()
             mod.print_local()
 
-    def __init__(self, name, file, start_line, end_line):
+    def __init__(self, name, file, local_vars, start_line, end_line):
         self.name = name
         self.file = file
         self.start_line = start_line
         self.end_line = end_line
+        self.local_vars = local_vars
 
         self.processed = False
         self.is_orphan = True
@@ -133,7 +143,7 @@ class TreeNode:
                 matches = True
             elif matches2:
                 fcall = matches2.group(1)
-                print(fcall)
+               #print(fcall)
                 matches = True
             if matches:
                 print(f'found func call {fcall} at line {i}')
@@ -168,23 +178,22 @@ def find_function_pairs(filename):
     func_list  = []
     module = Module(filename)
     start_line = None
-   #end_line = None
     end_line_maybe = None
     func_name  = None
     found_func =None
+    local_vars = []
 
     for i, line in enumerate(lines,1):
         matches = re.search(r"^;.* in function '(\w+)'$", line)
         # add a dummy func for some module level codes
         if matches:
             found_func = i 
-           #start_line = i + 2
             func_name  = matches.group(1)
-            print(f'found func {func_name} at {i}')
+           #print(f'found func {func_name} at {i}')
             continue
         matchesdummy = re.search(r'^;\s+global & static initialisations', line)
         if matchesdummy:
-            print(f'matched module level codes at line {i}')
+           #print(f'matched module level codes at line {i}')
             start_line = i + 2
             func_name  = 'module_level_codes'
             end_line_maybe = i + 5
@@ -195,37 +204,35 @@ def find_function_pairs(filename):
             if matches and matches.group(1) == func_name:
                 start_line = i 
                 found_func =   None
-                print(f'start line {start_line}')
+               #print(f'start line {start_line}')
                 continue
-            matches = re.search(r'_(\w+):', line)
+            matches = re.search(r"^;.*Allocated with name\s+'(\w+)'$", line)
+            if matches:
+                local_vars.append(matches.group(1))
+                continue
 
         elif start_line is not None:
-        #   print('hih')
             if re.search(r'^\s+(ret$|lcall|acall|ljmp|ajmp|sjmp)', line):
                 end_line_maybe = i
-                print(f'matched at {i}:{line}')
+               #print(f'matched at {i}:{line}')
                 continue
-       #if end_line_maybe == (i-1):
         if end_line_maybe is not None and end_line_maybe < i:
             if re.search(r'^;-{22}', line) or re.search(r'^\s+\.area CSEG\s+', line):
-               #end_line = i-1
-                func_list.append(TreeNode(func_name, module, start_line, i - 1))
-                print(f'end line at {i-1}')
-
+                func_list.append(TreeNode(func_name, module, local_vars, start_line, i - 1))
+               #print(f'end line at {i-1}')
                 start_line = None
                 end_line_maybe = None
                 func_name  = None
+                local_vars = []
 
-   #for i in func_list:
-   #    print(f'{i.file.name} {i.name} {i.start_line} {i.end_line}') 
     # If a function is not declared in .globl, it is local func, keep it, 
     globl_list = []
     for line in lines:
             matches = re.search(r'^\s+\.globl _(\w+)', line)
             if matches:
                 globl_list.append(matches.group(1))
-   #print(f'globl list {globl_list}')
 
+    # Put the list in our structure
     for func in func_list:
         for globl in globl_list:
             if func.name == globl:
@@ -243,10 +250,6 @@ def find_function_pairs(filename):
 
 process_path(sys.argv[1], find_function_pairs, recursive=True)
 
-#for mod in TreeNode.module_list:
-#    mod.print_globl()
-#    mod.print_local()
-
 # Get the entry points:
 entry_point_name_list = ['main', 'USB_interrupt', 'Timer0_ISR', 'module_level_codes']
 TreeNode.find_entry_points(entry_point_name_list)
@@ -255,8 +258,6 @@ for i in TreeNode.entry_point_list:
     print(f"{i.file.name}:{i.name}") 
 
 for mod in TreeNode.module_list:
-   #for func in (mod.local_list + mod.globl_list):
-   #    print(f'{func.file.name}:\t\t{func.name}\t{func.start_line}:{func.end_line}') 
     mod.print_globl()
     mod.print_local()
 
@@ -271,32 +272,27 @@ for mod in TreeNode.module_list:
     for func in mod.local_list + mod.globl_list:
         if func.is_orphan == True:
             print(f'{func.file.name}:\t\t{func.name}\t{func.start_line}:{func.end_line}') 
-print('\nUnprocessed functions :')
-for mod in TreeNode.module_list:
-    for func in mod.local_list + mod.globl_list:
-        if func.processed == False:
-            print(f'{func.file.name}:\t\t{func.name}\t{func.start_line}:{func.end_line}') 
+#print('\nUnprocessed functions :')
+#for mod in TreeNode.module_list:
+#    for func in mod.local_list + mod.globl_list:
+#        if func.processed == False:
+#            print(f'{func.file.name}:\t\t{func.name}\t{func.start_line}:{func.end_line}') 
 
 # remove orphan functions from asm files:
-# TODO delete var used by orphan func, add arX init to the first remaining function
 print('\nRemoving orphan functions.')
 for mod in TreeNode.module_list:
-
-   #if re.match(r'debug',mod.name) :
-   #    pass
-   #else:
-   #    continue
 
     with open(mod.name, 'r') as f:
         lines = f.readlines()
 
+
+
     for func in mod.local_list + mod.globl_list:
         if func.is_orphan == False:
             continue
-       #if func.name != '
+        local_var_found = None
         print(f'Removing {func.name} in {func.file.name}')
         for i, line in enumerate(lines,1):
-           #print(line)
             # Handle the orphan declare .globl <func>   
             match = re.search(r'^\s+\.globl _(\w+)$', line)
             if match:
@@ -304,24 +300,55 @@ for mod in TreeNode.module_list:
                     for func2 in mod2.globl_list:
                         if func2.is_orphan is True and match.group(1) == func2.name:
                             lines[i-1] = f';{lines[i-1]}'
+                            continue
 
             # Handle var decleration of orphan func  
-            match = re.search(r'^_(\w+)$', line)
+            if func.local_vars:
+                continue
+            match = re.search(r'^(\w+):$', line)
             if match:
-                for mod2 in TreeNode.module_list:
-                    for func2 in mod2.globl_list:
-                        if func2.is_orphan is True and match.group(1) == func2.name:
-                            lines[i-1] = f';{lines[i-1]}'
+                if match.group(1) in func.local_vars:
+                    local_var_found = i
+                    continue
+            if local_var_found == i-1:
+                if re.search(r'^\s+\.ds\s+\d+$', line):
+                    lines[i-2] = f';{lines[i-2]}'
+                    lines[i-1] = f';{lines[i-1]}'
+                    print(f'removed local var at {func.file.name}:{i-2}')
+                    continue
 
             # Handle the orphan <func> definition  
             if i < func.start_line:
-           #    print('cont')
                 continue
             if i > func.end_line:
-           #    print('brk')
                 break
             lines[i-1] = f';{lines[i-1]}'
-           #print(f'mod:{lines[i-1]}')
+
+
+    # Handle the arX
+    # Build a list of module start lines:
+    fist_non_orphan = None
+    all_func = mod.local_list + mod.globl_list
+    sorted_func = sorted(all_func,key = lambda x: x.start_line)
+    sorted_func.pop(0) #remove the dummy function (module level codes)
+    # Find first non orphan func
+    for func in sorted_func:
+        if func.is_orphan == False:
+            first_non_orphan = func
+            break
+    # If there's no such func, or that func is the first one in the file, no modification needed.
+    if first_non_orphan is None:
+        pass
+    elif first_non_orphan == all_func[0]:
+        pass
+    # Else, add the arX to the remaining first non orphan one
+    else:
+        for i, line in enumerate(lines,1):
+            if i == first_non_orphan.start_line:
+                lines = lines[:i] + arX + lines[i:]
+                print(f'added arX at {mod.name}:{i}')
+
+
 
    #shutil.move(func.file,f'{func.file}.bk')
     with open(f'{mod.name}.mod', 'w') as f:
