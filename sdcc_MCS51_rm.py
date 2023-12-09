@@ -6,6 +6,8 @@ import re
 import itertools
 import shutil
 
+sys.setrecursionlimit(99999)
+
 match_jump = re.compile(r'^\s+(acall|lcall|ljmp|ajmp|sjmp)\s+_(\w+)$')
 match_ptr  = re.compile(r'^\s+mov\s+\w+,#_(\w+)$')
 
@@ -91,17 +93,22 @@ class TreeNode:
             mod.print_globl()
             mod.print_local()
 
-    def __init__(self, name, file, local_vars, start_line, end_line):
+    def __init__(self, name, file, local_vars=[], start_line=None, end_line=None):
         self.name = name
         self.file = file
         self.start_line = start_line
-        self.end_line = end_line
-        self.local_vars = local_vars
+        self.end_line   = end_line
 
-        self.processed = False
+        self.local_vars = local_vars
+        self.local_vars_alloc_start = None
+        self.local_vars_alloc_end   = None
+
+        self.traversed = False
         self.is_orphan = True
 
         self.children = []
+        self.parents = []
+        self.empty   = False
 
 
     def add_child(self, child_node):
@@ -116,10 +123,10 @@ class TreeNode:
             child.print_tree(level + 1)
 
     def traverse(self):
-        if self.processed is True:
+        if self.traversed is True:
             return
         self.find_children()
-        self.processed = True
+        self.traversed = True
         for child in self.children:
             child.traverse()
 
@@ -165,6 +172,7 @@ class TreeNode:
                             if obj.name == fcall:
                                 self.add_child(obj)
                                 obj.is_orphan = False
+                                obj.parents.append(self)
                #                print(f'\t\tmatch global func at {obj.file.name}:{obj.start_line}')
                                 break
 
@@ -179,16 +187,18 @@ def find_function_pairs(filename):
     with open(filename, 'r') as f:
         lines = f.readlines()
 
-    func_list  = []
     module = Module(filename)
+    func_list  = []
+    func  = None
 
-    found_func =None
+    found_func = None
     func_name  = None
     start_line = None
     end_line_maybe = None
     local_vars = []
 
     for i, line in enumerate(lines,1):
+
         matches = re.search(r"^;.* in function '(\w+)'$", line)
         if matches:
             found_func = i 
@@ -198,6 +208,16 @@ def find_function_pairs(filename):
             local_vars = []
             print(f'found func {func_name} at {i}')
             continue
+
+       #matches = re.search(r"^;\s+function '(\w+)'$", line)
+       #if matches:
+       #    found_func = i 
+       #    func_name  = matches.group(1)
+       #    start_line = None
+       #    end_line_maybe = None
+       #    local_vars = []
+       #    print(f'found func {func_name} at {i}')
+       #    continue
 
         # add a dummy func for some module level codes
         matchesdummy = re.search(r'^;\s+global & static initialisations', line)
@@ -230,8 +250,12 @@ def find_function_pairs(filename):
         if end_line_maybe is not None and end_line_maybe <= i:
             if re.search(r'^;-{22}', line) or re.search(r'^\s+\.area CSEG\s+', line):
                 print(f'matched --- or .area CSEG at {i-1}')
-                func_list.append(TreeNode(func_name, module, local_vars, start_line, i - 1))
+                func = TreeNode(func_name, module, local_vars, start_line, i - 1)
                 print(f'end line at {i-1}\n')
+                if start_line == i-2:
+                    func.empty = True
+                func_list.append(func)
+
                 start_line = None
                 end_line_maybe = None
                 func_name  = None
@@ -279,7 +303,7 @@ for i in TreeNode.entry_point_list:
 for ep in TreeNode.entry_point_list:
     print(f'\nCreating function call tree for endpoint {ep.file.name}:{ep.name}')
     ep.traverse()
-    ep.print_tree()
+   #ep.print_tree()
 
 #print('\nOrphan functions found :')
 #for mod in TreeNode.module_list:
@@ -420,4 +444,42 @@ for mod in TreeNode.module_list:
    #shutil.move(func.file,f'{func.file}.bk')
     with open(f'{mod.name}.mod', 'w') as f:
         f.writelines(lines)
+
+
+#for i in [1,2,3,4,5,6,7,8]:
+for i in [1]:
+    print(f"\nfunc called {i} times:")
+    for mod in TreeNode.module_list:
+        for func in mod.local_list + mod.globl_list:
+            if len(func.parents) == i:
+                print(f'\t{func.file.name}:{func.name}:{func.start_line}')
+                print(f'\tcaller:{func.parents[0].file.name}:{func.parents[0].name}:{func.parents[0].start_line}')
+                print()
+
+print(f"\n\n empty func :")
+for mod in TreeNode.module_list:
+    for func in mod.local_list + mod.globl_list:
+        if func.empty is True:
+            print(f'\t{func.file.name}:{func.name}:{func.start_line}')
+
+def depth (node):
+  if node.empty is True: # base case: empty tree has depth 0
+    return 0
+  else: # recursive case: depth is max of children's depths + 1
+    max_depth = 0 # initialize the maximum depth to 0
+    for child in node.children: # loop over the list of children
+      child_depth = depth (child) # get the depth of each child
+      if child_depth > max_depth: # update the maximum depth if needed
+        max_depth = child_depth
+    return max_depth + 1 # return the maximum depth plus 1
+
+print("max estimated function call depth: ")
+
+##find mainfunc 
+#mainfunc = None
+#for func in TreeNode.entry_point_list :
+#    if func.name == "main":
+#        mainfunc = func
+#        break
+#print(depth(mainfunc)) this shit got me segmentation fault. damn. stack overflow while trying to calculate stack overflow, how irony
 
