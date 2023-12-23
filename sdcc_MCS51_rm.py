@@ -5,6 +5,7 @@ import sys
 import re
 import itertools
 import shutil
+import argparse
 
 sys.setrecursionlimit(99999)
 
@@ -294,16 +295,34 @@ def find_function_pairs(filename):
     
 
 #------------------- main prog --------------------------------------
+# Create an ArgumentParser object
+parser = argparse.ArgumentParser(description="This is a dead code optimization tool for sdcc mcs51 port (aka 8051 family).")
 
-process_path(sys.argv[1], find_function_pairs, recursive=True)
+# Add the '-d' argument, which takes one string
+parser.add_argument("-d", type=str, required=True, help="A directory that contains all .asm files in your project.")
+
+# Add the '-e' argument, which takes multiple strings
+parser.add_argument("-e", type=str, nargs="+", help="Additional entry points besides main. For ISRs, for example.")
+
+# Parse the arguments from sys.argv
+args = parser.parse_args()
+if args.e:
+    addi_ep = args.e
+else:
+    addi_ep = []
 
 
+
+# Find out all functions in the provided dir:
+process_path(args.d, find_function_pairs, recursive=True)
 
 # Get the entry points:
 entry_point_name_list = ['main',None, 'putchar','getchar','null_sendchar_func'] 
 # 'None' is a placeholder for variables inintialization at module level codes (not inside any function)
-qmk_func = ['USB_DeviceInterrupt','Timer0_ISR', 'send_mouse','send_extra','send_keyboard','keyboard_leds','generate_tick_event']
-entry_point_name_list.extend(qmk_func)
+
+#qmk_func = ['USB_DeviceInterrupt','Timer0_ISR', 'send_mouse','send_extra','send_keyboard','keyboard_leds','generate_tick_event']
+#entry_point_name_list.extend(qmk_func)
+entry_point_name_list.extend(addi_ep)
 
 TreeNode.find_entry_points(entry_point_name_list)
 print('\nEntry points functions:')
@@ -461,7 +480,7 @@ for mod in TreeNode.module_list:
 
 #for i in [1,2,3,4,5,6,7,8]:
 for i in [1]:
-    print(f"\nfunc called {i} times:")
+    print(f"\n\n Functions called only {i} times:")
     for mod in TreeNode.module_list:
         for func in mod.local_list + mod.globl_list:
             if len(func.parents) == i:
@@ -469,7 +488,7 @@ for i in [1]:
                 print(f'\tcaller:{func.parents[0].file.name}:{func.parents[0].name}:{func.parents[0].start_line}')
                 print()
 
-print(f"\n\n empty func :")
+print(f"\n\n Empty functions :")
 for mod in TreeNode.module_list:
     for func in mod.local_list + mod.globl_list:
         if func.empty is True:
@@ -488,7 +507,7 @@ def depth (node):
 
 
 
-print("max estimated function call depth: ")
+print("\n\n Max estimated function call depth: ")
 
 ##find mainfunc 
 #mainfunc = None
