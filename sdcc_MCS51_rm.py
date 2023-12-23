@@ -86,6 +86,7 @@ class TreeNode:
                     if obj.name == ep_name:
                         cls.entry_point_list.append(obj)
                         obj.is_orphan = False
+                        obj.depth = 0
 
     @classmethod
     def print_module(self):
@@ -109,6 +110,7 @@ class TreeNode:
         self.children = []
         self.parents = []
         self.empty   = False
+        self.depth   = None
 
 
     def add_child(self, child_node):
@@ -164,6 +166,10 @@ class TreeNode:
                         self.add_child(obj)
                         obj.is_orphan = False
                #        print(f'\t\tmatch local func at line {obj.start_line}')
+                        obj.parents.append(self)
+                        # Calculate depth for the child:
+                        if (obj.depth is None) or (obj.depth < (self.depth +1)):
+                            obj.depth = self.depth + 1
                         break
                 else:
                 # then in global funcs of all modules:
@@ -172,8 +178,11 @@ class TreeNode:
                             if obj.name == fcall:
                                 self.add_child(obj)
                                 obj.is_orphan = False
-                                obj.parents.append(self)
                #                print(f'\t\tmatch global func at {obj.file.name}:{obj.start_line}')
+                                obj.parents.append(self)
+                                # Calculate depth for the child:
+                                if (obj.depth is None) or (obj.depth < (self.depth +1)):
+                                    obj.depth = self.depth + 1
                                 break
 
             
@@ -291,7 +300,11 @@ process_path(sys.argv[1], find_function_pairs, recursive=True)
 
 
 # Get the entry points:
-entry_point_name_list = ['main', 'USB_interrupt', 'Timer0_ISR', None] #'module_level_codes']
+entry_point_name_list = ['main',None, 'putchar','getchar','null_sendchar_func'] 
+# 'None' is a placeholder for variables inintialization at module level codes (not inside any function)
+qmk_func = ['USB_DeviceInterrupt','Timer0_ISR', 'send_mouse','send_extra','send_keyboard','keyboard_leds','generate_tick_event']
+entry_point_name_list.extend(qmk_func)
+
 TreeNode.find_entry_points(entry_point_name_list)
 print('\nEntry points functions:')
 for i in TreeNode.entry_point_list:
@@ -473,6 +486,8 @@ def depth (node):
         max_depth = child_depth
     return max_depth + 1 # return the maximum depth plus 1
 
+
+
 print("max estimated function call depth: ")
 
 ##find mainfunc 
@@ -483,3 +498,13 @@ print("max estimated function call depth: ")
 #        break
 #print(depth(mainfunc)) this shit got me segmentation fault. damn. stack overflow while trying to calculate stack overflow, how irony
 
+max_depth = 0
+for mod in TreeNode.module_list:
+    for func in mod.globl_list + mod.local_list:
+        if func.is_orphan is True: 
+            continue
+        if not func.children:
+            print(f'{func.name}:{func.depth}')
+        if func.depth > max_depth:
+            max_depth = func.depth
+print(max_depth)
