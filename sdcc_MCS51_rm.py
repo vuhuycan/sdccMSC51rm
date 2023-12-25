@@ -104,6 +104,7 @@ class TreeNode:
         self.local_vars = local_vars
         self.local_vars_alloc_start = None
         self.local_vars_alloc_end   = None
+        # TODO find it and comment it out 
 
         self.traversed = False
         self.is_orphan = True
@@ -190,7 +191,7 @@ class TreeNode:
         
 
 
-def find_function_pairs(filename):
+def find_functions_in_file(filename):
     if not filename.endswith('.asm'):  # Process asm files only
         return
     print(f'\nProcessing module {filename}')
@@ -209,6 +210,7 @@ def find_function_pairs(filename):
 
     for i, line in enumerate(lines,1):
 
+        # Find out the comment portions about local var right before function definition:
         matches = re.search(r"^;.* in function '(\w+)'$", line)
         if matches:
             found_func = i 
@@ -241,18 +243,36 @@ def find_function_pairs(filename):
             continue
 
         if found_func is not None:
+            # Find out where the function definition start:
             matches = re.search(r'_(\w+):', line)
             if matches and matches.group(1) == func_name:
                 start_line = i 
                 found_func =   None
                 print(f'start line {start_line}')
                 continue
+            # Find out the names of local vars belong to current function:
             matches = re.search(r"^;.*Allocated with name\s+'(\w+)'$", line)
             if matches:
                 local_vars.append(matches.group(1))
                 continue
 
         elif start_line is not None:
+            # Find out the sloc vars belong to current function:
+            matches = re.search(r"^\s*\w+\s+(\w+),?(\w+)?$", line)
+            if matches and func_name is not None: # skip module level codes (with func_name=None)
+                args = matches.groups()
+               #print(line)
+                for arg in args:
+                    if arg is None:
+                        continue
+                   #print(f'match arg {arg}')
+                    matches2 = re.match('_'+func_name+'_sloc', arg)
+                    if matches2:
+                        print(f'sloc {arg} found')
+                        local_vars.append(arg)
+               #continue
+
+            # Find out where the function definition end:
             if re.search(r'^\s+(ret$|reti$|lcall|acall|ljmp|ajmp|sjmp)', line):
                 end_line_maybe = i
                 print(f'matched end maybe at {i}')
@@ -314,7 +334,7 @@ else:
 
 
 # Find out all functions in the provided dir:
-process_path(args.d, find_function_pairs, recursive=True)
+process_path(args.d, find_functions_in_file, recursive=True)
 
 # Get the entry points:
 entry_point_name_list = ['main',None, 'putchar','getchar','null_sendchar_func'] 
@@ -375,7 +395,8 @@ for mod in TreeNode.module_list:
     print(f'\n Removing dead codes:')
 
 
-    # Handle local var mem alloc of orphan func  
+    # Handle local var mem declaration of orphan func ( .ds <num> ) 
+    # TODO handle coressponding local var mem alloc(init) too.
 
     orphan_local_vars = []
     for func in mod.local_list + mod.globl_list:
@@ -396,7 +417,7 @@ for mod in TreeNode.module_list:
             if re.search(r'^\s+\.ds\s+\d+$', line):
                 lines[i-2] = f';{lines[i-2]}'
                 lines[i-1] = f';{lines[i-1]}'
-                print(f'\tremoved var alloc {orphan_var}:{i-2}')
+                print(f'\tremoved var declaration {orphan_var}:{i-2}')
                 orphan_var_line = None
                 orphan_var = None
                 continue
@@ -447,7 +468,7 @@ for mod in TreeNode.module_list:
     # Handle the arX
 
     # Build a list of module start lines:
-    fist_non_orphan = None
+    first_non_orphan = None
     all_func = mod.local_list + mod.globl_list
     sorted_func = sorted(all_func,key = lambda x: x.start_line)
     if sorted_func[0].name is None:
@@ -477,6 +498,11 @@ for mod in TreeNode.module_list:
     with open(f'{mod.name}.mod', 'w') as f:
         f.writelines(lines)
 
+
+
+
+
+# Some Extra Utility Features:
 
 #for i in [1,2,3,4,5,6,7,8]:
 for i in [1]:
